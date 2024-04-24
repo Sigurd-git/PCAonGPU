@@ -10,20 +10,21 @@ import torch
 # Determine if there's a GPU available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class IncrementalPCAonGPU():
+
+class IncrementalPCAonGPU:
     """
     An implementation of Incremental Principal Components Analysis (IPCA) that leverages PyTorch for GPU acceleration.
 
-    This class provides methods to fit the model on data incrementally in batches, and to transform new data 
+    This class provides methods to fit the model on data incrementally in batches, and to transform new data
     based on the principal components learned during the fitting process.
 
     Attributes:
-        n_components (int, optional): Number of components to keep. If `None`, it's set to the minimum of the 
+        n_components (int, optional): Number of components to keep. If `None`, it's set to the minimum of the
                                       number of samples and features. Defaults to None.
-        whiten (bool): When True, the `components_` vectors are divided to ensure uncorrelated outputs with 
+        whiten (bool): When True, the `components_` vectors are divided to ensure uncorrelated outputs with
                        unit component-wise variances. Defaults to False.
         copy (bool): If False, input data will be overwritten. Defaults to True.
-        batch_size (int, optional): The number of samples to use for each batch. If `None`, it's inferred from 
+        batch_size (int, optional): The number of samples to use for each batch. If `None`, it's inferred from
                                     the data and set to `5 * n_features`. Defaults to None.
     """
 
@@ -33,27 +34,31 @@ class IncrementalPCAonGPU():
         self.copy = copy
         self.batch_size = batch_size
         self.device = device
-        
+
         # Set n_components_ based on n_components if provided
         if n_components:
             self.n_components_ = n_components
 
         # Initialize attributes to avoid errors during the first call to partial_fit
-        self.mean_ = None  # Will be initialized properly in partial_fit based on data dimensions
-        self.var_ = None  # Will be initialized properly in partial_fit based on data dimensions
+        self.mean_ = (
+            None  # Will be initialized properly in partial_fit based on data dimensions
+        )
+        self.var_ = (
+            None  # Will be initialized properly in partial_fit based on data dimensions
+        )
         self.n_samples_seen_ = 0
 
     def _validate_data(self, X, dtype=torch.float32, copy=True):
         """
         Validates and converts the input data `X` to the appropriate tensor format.
 
-        This method ensures that the input data is in the form of a PyTorch tensor and resides on the correct device (CPU or GPU). 
+        This method ensures that the input data is in the form of a PyTorch tensor and resides on the correct device (CPU or GPU).
         It also provides an option to create a copy of the tensor, which is useful when the input data should not be overwritten.
 
         Args:
             X (Union[np.ndarray, torch.Tensor]): Input data which can be a numpy array or a PyTorch tensor.
             dtype (torch.dtype, optional): Desired data type for the tensor. Defaults to torch.float32.
-            copy (bool, optional): Whether to clone the tensor. If True, a new tensor is returned; otherwise, the original tensor 
+            copy (bool, optional): Whether to clone the tensor. If True, a new tensor is returned; otherwise, the original tensor
                                    (or its device-transferred version) is returned. Defaults to True.
 
         Returns:
@@ -93,12 +98,18 @@ class IncrementalPCAonGPU():
         new_sample_count = X.shape[0]
         new_mean = torch.mean(X, dim=0)
         new_sum_square = torch.sum((X - new_mean) ** 2, dim=0)
-        
+
         updated_sample_count = last_sample_count + new_sample_count
-        
-        updated_mean = (last_sample_count * last_mean + new_sample_count * new_mean) / updated_sample_count
-        updated_variance = (last_variance * (last_sample_count + new_sample_count * last_mean ** 2) + new_sum_square + new_sample_count * new_mean ** 2) / updated_sample_count - updated_mean ** 2
-        
+
+        updated_mean = (
+            last_sample_count * last_mean + new_sample_count * new_mean
+        ) / updated_sample_count
+        updated_variance = (
+            last_variance * (last_sample_count + new_sample_count * last_mean**2)
+            + new_sum_square
+            + new_sample_count * new_mean**2
+        ) / updated_sample_count - updated_mean**2
+
         return updated_mean, updated_variance, updated_sample_count
 
     @staticmethod
@@ -125,7 +136,7 @@ class IncrementalPCAonGPU():
         u *= signs
         v *= signs[:, None]
         return u, v
-    
+
     def fit(self, X, check_input=True):
         """
         Fits the model with data `X` using minibatches of size `batch_size`.
@@ -174,7 +185,10 @@ class IncrementalPCAonGPU():
             self.n_components_ = min(n_samples, n_features)
 
         col_mean, col_var, n_total_samples = self._incremental_mean_and_var(
-            X, self.mean_, self.var_, torch.tensor([self.n_samples_seen_], device=self.device)
+            X,
+            self.mean_,
+            self.var_,
+            torch.tensor([self.n_samples_seen_], device=self.device),
         )
 
         # Whitening
@@ -184,7 +198,10 @@ class IncrementalPCAonGPU():
             col_batch_mean = torch.mean(X, dim=0)
             X -= col_batch_mean
             mean_correction_factor = torch.sqrt(
-                torch.tensor((self.n_samples_seen_ / n_total_samples.item()) * n_samples, device=self.device)
+                torch.tensor(
+                    (self.n_samples_seen_ / n_total_samples.item()) * n_samples,
+                    device=self.device,
+                )
             )
             mean_correction = mean_correction_factor * (self.mean_ - col_batch_mean)
 
@@ -204,13 +221,16 @@ class IncrementalPCAonGPU():
 
         self.n_samples_seen_ = n_total_samples.item()
         self.components_ = Vt[: self.n_components_]
+        self.Vt = Vt
         self.singular_values_ = S[: self.n_components_]
         self.mean_ = col_mean
         self.var_ = col_var
         self.explained_variance_ = explained_variance[: self.n_components_]
         self.explained_variance_ratio_ = explained_variance_ratio[: self.n_components_]
         if self.n_components_ not in (n_samples, n_features):
-            self.noise_variance_ = explained_variance[self.n_components_ :].mean().item()
+            self.noise_variance_ = (
+                explained_variance[self.n_components_ :].mean().item()
+            )
         else:
             self.noise_variance_ = 0.0
         return self
