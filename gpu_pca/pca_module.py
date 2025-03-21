@@ -28,7 +28,15 @@ class IncrementalPCAonGPU:
                                     the data and set to `5 * n_features`. Defaults to None.
     """
 
-    def __init__(self, n_components=None, *, whiten=False, copy=True, batch_size=None):
+    def __init__(
+        self,
+        n_components=None,
+        *,
+        whiten=False,
+        copy=True,
+        batch_size=None,
+        demean=True,
+    ):
         self.n_components = n_components
         self.whiten = whiten
         self.copy = copy
@@ -47,6 +55,7 @@ class IncrementalPCAonGPU:
             None  # Will be initialized properly in partial_fit based on data dimensions
         )
         self.n_samples_seen_ = 0
+        self.demean = demean
 
     def _validate_data(self, X, dtype=torch.float32, copy=True):
         """
@@ -191,26 +200,36 @@ class IncrementalPCAonGPU:
             torch.tensor([self.n_samples_seen_], device=self.device),
         )
 
-        # Whitening
-        if self.n_samples_seen_ == 0:
-            X -= col_mean
-        else:
-            col_batch_mean = torch.mean(X, dim=0)
-            X -= col_batch_mean
-            mean_correction_factor = torch.sqrt(
-                torch.tensor(
-                    (self.n_samples_seen_ / n_total_samples.item()) * n_samples,
-                    device=self.device,
+        if self.demean:
+            if self.n_samples_seen_ == 0:
+                X -= col_mean
+            else:
+                col_batch_mean = torch.mean(X, dim=0)
+                X -= col_batch_mean
+                mean_correction_factor = torch.sqrt(
+                    torch.tensor(
+                        (self.n_samples_seen_ / n_total_samples.item()) * n_samples,
+                        device=self.device,
+                    )
                 )
-            )
-            mean_correction = mean_correction_factor * (self.mean_ - col_batch_mean)
+                mean_correction = mean_correction_factor * (self.mean_ - col_batch_mean)
 
-            if self.singular_values_ is not None and self.components_ is not None:
+                if self.singular_values_ is not None and self.components_ is not None:
+                    X = torch.vstack(
+                        (
+                            self.singular_values_.view((-1, 1)) * self.components_,
+                            X,
+                            mean_correction,
+                        )
+                    )
+        else:
+            if self.n_samples_seen_ == 0:
+                pass
+            elif self.singular_values_ is not None and self.components_ is not None:
                 X = torch.vstack(
                     (
                         self.singular_values_.view((-1, 1)) * self.components_,
                         X,
-                        mean_correction,
                     )
                 )
 
