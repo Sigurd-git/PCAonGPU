@@ -7,10 +7,6 @@ processes data in smaller chunks or batches.
 import torch
 
 
-# Determine if there's a GPU available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
 class IncrementalPCAonGPU:
     """
     An implementation of Incremental Principal Components Analysis (IPCA) that leverages PyTorch for GPU acceleration.
@@ -36,6 +32,7 @@ class IncrementalPCAonGPU:
         copy=True,
         batch_size=None,
         demean=True,
+        device="cpu",
     ):
         self.n_components = n_components
         self.whiten = whiten
